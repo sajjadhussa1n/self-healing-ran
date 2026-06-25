@@ -1,0 +1,60 @@
+# =====================================================
+# pipeline_config.yaml
+# Edit this file to control the entire pipeline.
+# No need to touch main.py or any src/ files.
+# =====================================================
+
+# ---------------------------------------------------
+# Network simulation parameters
+# (forwarded into SimConfig — only override what you
+#  need; anything omitted falls back to SimConfig
+#  defaults)
+# ---------------------------------------------------
+network:
+  NUM_BS: 7
+  NUM_UE: 100
+  RANDOM_SEED: 42
+  # Add any other SimConfig field here to override it,
+  # e.g. AREA_SIZE_M: 1000
+
+# ---------------------------------------------------
+# Demo outage scenario (used in Steps 1-4 of main.py)
+# ---------------------------------------------------
+demo:
+  failed_bs_id: 0
+  outage_severity: "full"   # "full" | "partial" | etc.
+
+# ---------------------------------------------------
+# COD training parameters
+# ---------------------------------------------------
+cod:
+  n_episodes: 60
+  n_normal_steps: 10
+  n_outage_steps: 10
+
+# ---------------------------------------------------
+# RL agent parameters
+# ---------------------------------------------------
+agents:
+  use_pretrained: true        # true -> load_trained_agents
+                               # false -> train_DRL_agents
+  total_timesteps: 20000      # only used if use_pretrained: false
+  pretrained_dir: "models/pretrained"
+  trained_save_dir: "models"
+  model_names:
+    DQN: "dqn"
+    PPO: "ppo"
+
+# ---------------------------------------------------
+# Evaluation parameters
+# ---------------------------------------------------
+evaluation:
+  n_episodes: 500
+
+# ---------------------------------------------------
+# Input / output directories
+# ---------------------------------------------------
+paths:
+  results_dir: "results"
+  figures_dir: "docs/figures"
+  models_dir: "models"
