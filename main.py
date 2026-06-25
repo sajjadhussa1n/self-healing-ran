@@ -2,24 +2,11 @@
 main.py
 =======
 End-to-end pipeline for the Self-Healing 5G RAN project.
-
-Runs, in order:
-  1. Create a network and visualise it.
-  2. Simulate a BS outage and visualise before/after.
-  3. Train and evaluate COD models
-     (Threshold, Logistic Regression, Random Forest).
-  4. Apply all six heuristic COC strategies to the
-     outage scenario and visualise each result.
-  5. Create DQN and PPO agents.
-  6. Train both agents.
-  7. Evaluate all agents against all heuristics
-     and produce the paper-ready result figures/tables.
-
-Every step is a single function call -- see src/ for the
-underlying implementation of each.
+All parameters are controlled via pipeline_config.yaml —
+edit that file instead of this one.
 """
-
-from src.config import SimConfig
+import os
+from src.utils.config_loader import load_pipeline_config
 from src.network.factory import create_network, simulate_outage
 from src.network.visualization import plot_network, plot_before_after
 from src.detection.pipeline import train_cod_model
@@ -31,8 +18,15 @@ from src.environment.gym_env import SelfHealingEnv
 
 
 def main():
-    config = SimConfig()
-    FAILED_BS_ID = 0  # BS to fail for the illustrative demo
+    config, pcfg = load_pipeline_config("pipeline_config.yaml")
+
+    paths = pcfg["paths"]
+    for d in [paths["models_dir"], paths["results_dir"],
+              paths["figures_dir"]]:
+        os.makedirs(d, exist_ok=True)
+
+    FAILED_BS_ID = pcfg["demo"]["failed_bs_id"]
+    SEVERITY = pcfg["demo"]["outage_severity"]
 
     # ------------------------------------------------------------------
     # 1. Create network and visualise normal operation
@@ -40,7 +34,8 @@ def main():
     print("\n### STEP 1: Create network ###")
     network = create_network(config)
     plot_network(network, title="Network: Normal Operation",
-                 save_path="docs/figures/01_network_normal.png",
+                 save_path=os.path.join(
+                     paths["figures_dir"], "01_network_normal.png"),
                  show=False)
 
     # ------------------------------------------------------------------
@@ -48,20 +43,24 @@ def main():
     # ------------------------------------------------------------------
     print("\n### STEP 2: Simulate outage ###")
     network_before, network_after = simulate_outage(
-        network, failed_bs_id=FAILED_BS_ID, severity="full")
+        network, failed_bs_id=FAILED_BS_ID, severity=SEVERITY)
     plot_before_after(
         network_before, network_after,
-        save_path="docs/figures/02_before_after_outage.png",
+        save_path=os.path.join(
+            paths["figures_dir"], "02_before_after_outage.png"),
         show=False)
 
     # ------------------------------------------------------------------
     # 3. Train and evaluate COD models
     # ------------------------------------------------------------------
     print("\n### STEP 3: Train COD models ###")
+    cod_cfg = pcfg["cod"]
     cod_results = train_cod_model(
-        config=config, n_episodes=60,
-        n_normal_steps=10, n_outage_steps=10,
-        save_dir="models")
+        config=config,
+        n_episodes=cod_cfg["n_episodes"],
+        n_normal_steps=cod_cfg["n_normal_steps"],
+        n_outage_steps=cod_cfg["n_outage_steps"],
+        save_dir=paths["models_dir"])
 
     # ------------------------------------------------------------------
     # 4. Simulate all heuristic COC strategies on the outage
@@ -69,11 +68,12 @@ def main():
     print("\n### STEP 4: Simulate COC heuristic strategies ###")
     coc_results, coc_summary = simulate_coc_strategies(
         network_after, failed_bs_id=FAILED_BS_ID,
-        save_dir="docs/figures")
+        save_dir=paths["figures_dir"])
     print("\nHeuristic strategy summary:")
     print(coc_summary.to_string(index=False))
     coc_summary.to_csv(
-        "results/coc_heuristic_summary.csv", index=False)
+        os.path.join(paths["results_dir"],
+                     "coc_heuristic_summary.csv"), index=False)
 
     # ------------------------------------------------------------------
     # 5. Create DQN and PPO agents
@@ -86,33 +86,38 @@ def main():
     # ------------------------------------------------------------------
     # 6. Train OR load pre-trained DQN and PPO agents
     # ------------------------------------------------------------------
-    USE_PRETRAINED = True  # ← flip to False to retrain from scratch
-    
     print("\n### STEP 6: Train or load DQN and PPO agents ###")
-    if USE_PRETRAINED:
+    agent_cfg = pcfg["agents"]
+    if agent_cfg["use_pretrained"]:
         agents = load_trained_agents(
-            agents, load_dir="models/pretrained")
+            agents,
+            load_dir=agent_cfg["pretrained_dir"],
+            model_names=agent_cfg["model_names"])
     else:
         agents, training_times = train_DRL_agents(
-            agents, total_timesteps=20_000, save_dir="models")
+            agents,
+            total_timesteps=agent_cfg["total_timesteps"],
+            save_dir=agent_cfg["trained_save_dir"],
+            model_names=agent_cfg["model_names"])
         print(f"Training times (s): {training_times}")
 
     # ------------------------------------------------------------------
     # 7. Evaluate all agents vs all heuristics, produce results
     # ------------------------------------------------------------------
     print("\n### STEP 7: Evaluate models and produce results ###")
+    eval_cfg = pcfg["evaluation"]
     summary_df, raw_results = evaluate_models(
         agents=agents,
         env_factory=lambda: SelfHealingEnv(config=config),
         config=config,
-        n_episodes=500,
+        n_episodes=eval_cfg["n_episodes"],
         num_bs=config.NUM_BS,
-        save_dir="results",
-        fig_dir="docs/figures")
+        save_dir=paths["results_dir"],
+        fig_dir=paths["figures_dir"])
 
     print("\n### PIPELINE COMPLETE ###")
     print(f"Final summary saved to "
-         f"results/evaluation_summary.csv")
+         f"{paths['results_dir']}/evaluation_summary.csv")
     print(summary_df.to_string(index=False))
 
 
