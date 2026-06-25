@@ -57,49 +57,49 @@ system** that:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                   5G Radio Network                       │
+│                   5G Radio Network                      │
 │   7 Base Stations • 100 UEs • Hexagonal Topology        │
 │   Log-distance Path Loss • 3GPP Antenna Model           │
 └──────────────────────┬──────────────────────────────────┘
                        │ KPI streams (E2 interface)
                        ▼
 ┌─────────────────────────────────────────────────────────┐
-│              Cell Outage Detection (COD)                 │
+│              Cell Outage Detection (COD)                │
 │                                                         │
-│  Features: UE count, PRB load, delta UE,               │
+│  Features: UE count, PRB load, delta UE,                │
 │            neighbour KPIs (E2-observable only)          │
 │                                                         │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │
-│  │  Threshold   │  │   Logistic   │  │    Random    │ │
-│  │     Rule     │  │  Regression  │  │    Forest    │ │
-│  │ F1=1.0/0.1  │  │ F1=1.0/0.65 │  │ F1=1.0/0.65 │ │
-│  │(Out/Deg)    │  │ (Out/Deg)   │  │ (Out/Deg)   │ │
-│  └──────────────┘  └──────────────┘  └──────────────┘ │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
+│  │  Threshold   │  │   Logistic   │  │    Random    │   │
+│  │     Rule     │  │  Regression  │  │    Forest    │   │
+│  │ F1=1.0/0.1   │  │ F1=1.0/0.65  │  │ F1=1.0/0.65  │   │
+│  │(Out/Deg)     │  │ (Out/Deg)    │  │ (Out/Deg)    │   │
+│  └──────────────┘  └──────────────┘  └──────────────┘   │
 │                                                         │
-│  3-Class Output: Normal (0) / Outage (1) / Degraded (2)│
+│  3-Class Output: Normal (0) / Outage (1) / Degraded (2) │
 └──────────────────────┬──────────────────────────────────┘
                        │ which BS failed + confidence
                        ▼
 ┌─────────────────────────────────────────────────────────┐
-│           Cell Outage Compensation (COC)                 │
+│           Cell Outage Compensation (COC)                │
 │                                                         │
-│  State (52D): Per-BS KPIs + COD output + global stats  │
+│  State (52D): Per-BS KPIs + COD output + global stats   │
 │                                                         │
 │  Actions (7):                                           │
 │    0: Do Nothing                                        │
-│    1: Fixed Power Boost (all neighbours)               │
-│    2: Proportional Power Boost                         │
-│    3: Best Single Neighbour Boost ← best heuristic     │
-│    4: Simultaneous Frozen-Snapshot Boost               │
-│    5: Tilt Reduction Only ← key for centre BS          │
-│    6: Joint Power + Tilt ← most sophisticated          │
+│    1: Fixed Power Boost (all neighbours)                │
+│    2: Proportional Power Boost                          │
+│    3: Best Single Neighbour Boost ← best heuristic      │
+│    4: Simultaneous Frozen-Snapshot Boost                │
+│    5: Tilt Reduction Only ← key for centre BS           │
+│    6: Joint Power + Tilt ← most sophisticated           │
 │                                                         │
-│  ┌─────────────────────┐  ┌─────────────────────────┐ │
-│  │    DQN Agent        │  │      PPO Agent          │ │
-│  │  [256→256→128→7]   │  │   [256→256→128→7]      │ │
-│  │  Cov: 99.2% ✓      │  │   Cov: 96.7%           │ │
-│  │  Solve: 55.0% ✓    │  │   Solve: 40.5%         │ │
-│  └─────────────────────┘  └─────────────────────────┘ │
+│  ┌─────────────────────┐  ┌─────────────────────────┐   │
+│  │    DQN Agent        │  │      PPO Agent          │   │
+│  │  [256→256→128→7]    │  │   [256→256→128→7]       │   │
+│  │  Cov: 99.2%         │  │   Cov: 96.7%            │   │
+│  │  Solve: 55.0%       │  │   Solve: 40.5%          │   │
+│  └─────────────────────┘  └─────────────────────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -119,7 +119,7 @@ system** that:
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/self-healing-ran.git
+git clone https://github.com/sajjadhussa1n/self-healing-ran.git
 cd self-healing-ran
 
 # Create virtual environment
