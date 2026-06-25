@@ -73,3 +73,50 @@ def train_DRL_agents(agents, total_timesteps=20_000,
                  f"Saved -> {save_path}.zip")
 
     return agents, training_times
+
+def load_trained_agents(agents, load_dir="models/pretrained",
+                        model_names=None, log_progress=True):
+    """
+    Load pre-trained weights into existing agent objects,
+    skipping training entirely. Drop-in replacement for
+    train_DRL_agents() when you already have trained
+    model .zip files (e.g. the ones used in the paper).
+
+    Parameters
+    ----------
+    agents : dict[str, stable_baselines3 model]
+        e.g. {"DQN": dqn_model, "PPO": ppo_model}
+        — these must already be created with the SAME
+        env/architecture as create_DQN_agent /
+        create_PPO_agent, since only the weights/policy
+        are loaded, not the environment.
+    load_dir : str
+        Directory containing the saved .zip files.
+    model_names : dict[str, str] or None
+        Optional override for filenames
+        (default: lowercase agent key, e.g. "dqn.zip").
+    log_progress : bool
+
+    Returns
+    -------
+    trained_agents : dict[str, model]
+        Same dict, with each model's policy loaded from disk
+        (loaded in-place via .set_parameters, and also
+        returned for convenience).
+    """
+    for name, model in agents.items():
+        fname = (model_names.get(name, name.lower())
+                if model_names else name.lower())
+        path = os.path.join(load_dir, f"{fname}.zip")
+
+        if not os.path.exists(path):
+            raise FileNotFoundError(
+                f"Pre-trained model not found: {path}")
+
+        model.set_parameters(path)
+
+        if log_progress:
+            print(f" Loaded pre-trained weights for "
+                 f"{name} <- {path}")
+
+    return agents
