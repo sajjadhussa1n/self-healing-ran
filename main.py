@@ -25,7 +25,7 @@ from src.network.visualization import plot_network, plot_before_after
 from src.detection.pipeline import train_cod_model
 from src.compensation.pipeline import simulate_coc_strategies
 from src.agents.factory import create_DQN_agent, create_PPO_agent
-from src.agents.training import train_DRL_agents
+from src.agents.training import train_DRL_agents, load_trained_agents
 from src.agents.evaluation import evaluate_models
 from src.environment.gym_env import SelfHealingEnv
 
@@ -84,12 +84,18 @@ def main():
     agents = {"DQN": dqn_model, "PPO": ppo_model}
 
     # ------------------------------------------------------------------
-    # 6. Train both agents
+    # 6. Train OR load pre-trained DQN and PPO agents
     # ------------------------------------------------------------------
-    print("\n### STEP 6: Train DQN and PPO agents ###")
-    agents, training_times = train_DRL_agents(
-        agents, total_timesteps=20_000, save_dir="models")
-    print(f"Training times (s): {training_times}")
+    USE_PRETRAINED = True  # ← flip to False to retrain from scratch
+    
+    print("\n### STEP 6: Train or load DQN and PPO agents ###")
+    if USE_PRETRAINED:
+        agents = load_trained_agents(
+            agents, load_dir="models/pretrained")
+    else:
+        agents, training_times = train_DRL_agents(
+            agents, total_timesteps=20_000, save_dir="models")
+        print(f"Training times (s): {training_times}")
 
     # ------------------------------------------------------------------
     # 7. Evaluate all agents vs all heuristics, produce results
