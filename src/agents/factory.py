@@ -31,7 +31,7 @@ def create_DQN_agent(config=None, env_kwargs=None,
     env : SelfHealingEnv
     """
     env_kwargs = env_kwargs or {}
-    env = SelfHealingEnv(config=config, **env_kwargs)
+    env = SelfHealingNetworkEnv(config=config, **env_kwargs)
 
     default_kwargs = dict(
         learning_rate=1e-4,
@@ -80,11 +80,11 @@ def create_PPO_agent(config=None, env_kwargs=None,
 
     if n_envs > 1:
         env = make_vec_env(
-            lambda: SelfHealingEnv(config=config,
+            lambda: SelfHealingNetworkEnv(config=config,
                                   **env_kwargs),
             n_envs=n_envs)
     else:
-        env = SelfHealingEnv(config=config, **env_kwargs)
+        env = SelfHealingNetworkEnv(config=config, **env_kwargs)
 
     default_kwargs = dict(
         learning_rate=3e-4,
