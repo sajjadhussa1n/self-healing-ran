@@ -132,7 +132,7 @@ class SelfHealingNetworkEnv(gym.Env):
         use_edge_only = (
             self.use_curriculum and
             self.fixed_fail_id is None and
-            self._episode_count 
+            self._episode_count <
             self.cfg.RL_CURRICULUM_EPISODES)
 
         ep_seed            = (self.cfg.RANDOM_SEED +
