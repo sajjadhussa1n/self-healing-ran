@@ -108,17 +108,11 @@ def main():
     eval_cfg = pcfg["evaluation"]
     summary_df, raw_results = evaluate_models(
         agents=agents,
-        env_factory=lambda: SelfHealingNetworkEnv(config=config),
         config=config,
         n_episodes=eval_cfg["n_episodes"],
         num_bs=config.NUM_BS,
         save_dir=paths["results_dir"],
         fig_dir=paths["figures_dir"])
-
-    print("\n### PIPELINE COMPLETE ###")
-    print(f"Final summary saved to "
-         f"{paths['results_dir']}/evaluation_summary.csv")
-    print(summary_df.to_string(index=False))
 
 
 if __name__ == "__main__":
