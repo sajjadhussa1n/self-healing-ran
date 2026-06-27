@@ -14,8 +14,9 @@ from sklearn.ensemble import RandomForestClassifier
 
 from src.config import SimConfig
 from src.detection.kpi_logger import KPILogger
-from src.detection.classifiers import (
-    ThresholdClassifier, COD_FEATURE_NAMES)
+from src.detection.cod_classifier import (
+    ThresholdCOD, COD_FEATURES)
+from src.detection.simulator import simulate_episodes
 
 
 def _generate_cod_dataset(config, n_episodes,
@@ -37,40 +38,9 @@ def _generate_cod_dataset(config, n_episodes,
 
 def train_cod_model(config=None, n_episodes=60,
                     n_normal_steps=10, n_outage_steps=10,
+                    ue_step_size_m=10.0,
                     test_size=0.25, save_dir="models",
                     verbose=True):
-    """
-    Full COD training pipeline: generate dataset, train
-    Threshold / Logistic Regression / Random Forest
-    classifiers, evaluate all three, and save the trained
-    ML models to disk.
-
-    Parameters
-    ----------
-    config : SimConfig or None
-    n_episodes : int
-        Number of simulated episodes for dataset generation.
-    n_normal_steps, n_outage_steps : int
-        Timesteps of normal/outage operation per episode.
-    test_size : float
-        Fraction of data held out for testing.
-    save_dir : str
-        Directory to save trained .pkl model files.
-    verbose : bool
-
-    Returns
-    -------
-    results : dict
-        {
-          'dataset': pd.DataFrame,
-          'models': {'threshold': ..., 'logreg': ...,
-                     'rf': ...},
-          'reports': {'threshold': str, 'logreg': str,
-                      'rf': str},
-          'scores': {'threshold': {...}, 'logreg': {...},
-                     'rf': {...}}
-        }
-    """
     cfg = config if config is not None else SimConfig()
     os.makedirs(save_dir, exist_ok=True)
 
@@ -82,11 +52,18 @@ def train_cod_model(config=None, n_episodes=60,
              f"({n_normal_steps} normal + "
              f"{n_outage_steps} outage steps each)")
 
-    df = _generate_cod_dataset(
-        cfg, n_episodes, n_normal_steps, n_outage_steps,
+    # Use the existing simulate_episodes() helper, which
+    # correctly constructs RadioNetwork instances and
+    # drives KPILogger internally per the established API.
+    df, logger = simulate_episodes(
+        config=cfg,
+        n_episodes=n_episodes,
+        n_normal_steps=n_normal_steps,
+        n_outage_steps=n_outage_steps,
+        ue_step_size_m=ue_step_size_m,
         verbose=verbose)
-
-    X = df[COD_FEATURE_NAMES]
+        
+    X = df[COD_FEATURES]
     y = df["label"]
 
     X_train, X_test, y_train, y_test = train_test_split(
@@ -98,7 +75,7 @@ def train_cod_model(config=None, n_episodes=60,
     # --- 1. Threshold (rule-based) classifier ---
     if verbose:
         print("\n--- Threshold Classifier ---")
-    thresh = ThresholdClassifier()
+    thresh = ThresholdCOD()
     y_pred_thresh = thresh.predict(X_test)
     reports["threshold"] = classification_report(
         y_test, y_pred_thresh, zero_division=0)
