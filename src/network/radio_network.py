@@ -13,9 +13,10 @@ from typing import List, Optional, Dict, Tuple
 from src.config import SimConfig, CFG
 from src.network.base_station import BaseStation
 from src.network.user_equipment import UserEquipment
+from src.compensation.strategies import CompensationStrategies
 
 
-class RadioNetwork:
+class RadioNetwork(CompensationStrategies):
     """
     Core radio network simulation.
 
