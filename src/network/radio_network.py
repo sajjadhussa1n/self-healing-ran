@@ -194,9 +194,9 @@ class RadioNetwork:
                 self.cfg.BANDWIDTH_MHZ *
                 np.log2(1 + max(sinr, 1e-15)))
             ue.in_outage = (
-                ue.sinr_db 
+                ue.sinr_db <
                 self.cfg.SINR_OUTAGE_THRESHOLD_DB or
-                ue.received_power_dbm 
+                ue.received_power_dbm <
                 self.cfg.MIN_RX_POWER_DBM)
 
     # ── Cell outage ───────────────────────────────────────────────────
@@ -381,7 +381,7 @@ class RadioNetwork:
 
             was_out = ue.in_outage
             now_out = (
-                sinr_db 
+                sinr_db <
                 self.cfg.SINR_OUTAGE_THRESHOLD_DB or
                 best_rx < self.cfg.MIN_RX_POWER_DBM)
 
@@ -434,13 +434,13 @@ class RadioNetwork:
         n_deep = sum(1 for ue in self.ues
                      if ue.sinr_db is not None and
                      np.isfinite(ue.sinr_db) and
-                     ue.sinr_db 
+                     ue.sinr_db <
                      self.cfg.SINR_COMPENSATION_THRESHOLD_DB)
         n_marg = sum(1 for ue in self.ues
                      if ue.sinr_db is not None and
                      np.isfinite(ue.sinr_db) and
                      self.cfg.SINR_COMPENSATION_THRESHOLD_DB
-                     <= ue.sinr_db 
+                     <= ue.sinr_db <
                      self.cfg.SINR_OUTAGE_THRESHOLD_DB)
         return {
             'mean_sinr_db'      : (np.mean(sinrs)
