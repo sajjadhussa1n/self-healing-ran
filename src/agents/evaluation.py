@@ -1,91 +1,29 @@
+# src/agents/evaluation.py
 """
-Single-call evaluation function: runs a head-to-head
-comparison of trained RL agents against the six heuristic
-strategies (plus no-action baseline), producing the
-paper-ready metrics: coverage, solve rate, cumulative
-compensation energy, mean steps to resolution, action
-distribution, and per-BS coverage heatmap.
+Evaluation pipeline for comparing trained RL agents against
+heuristic compensation strategies.
+
+evaluate_heuristic() and evaluate_rl_agent() are the exact
+functions validated in the project notebooks and used to
+produce the paper's Table III results — do not alter their
+internal logic (seed_offset scheme, step-then-hold heuristic
+procedure, etc.) without re-validating against the paper.
 """
 import os
-import copy
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from src.network.factory import create_network, simulate_outage
-from src.compensation.pipeline import STRATEGY_FUNCS
+from src.environment.gym_env import SelfHealingNetworkEnv
 
 
-def _rollout_agent(model, env, n_episodes, deterministic=True):
-    """Run a trained SB3 model for n_episodes on env,
-    collecting per-episode metrics."""
-    records = []
-    for ep in range(n_episodes):
-        obs, info = env.reset()
-        done, truncated = False, False
-        steps = 0
-        energy = 0.0
-        actions_taken = []
-
-        while not (done or truncated):
-            action, _ = model.predict(
-                obs, deterministic=deterministic)
-            obs, reward, done, truncated, info = env.step(
-                int(action))
-            steps += 1
-            energy += info.get("step_energy", 0.0)
-            actions_taken.append(int(action))
-
-        records.append({
-            "episode": ep,
-            "failed_bs": info.get("failed_bs_id"),
-            "coverage_pct": info.get("coverage_pct"),
-            "solved": info.get("coverage_pct", 0) >= 99.999,
-            "steps": steps,
-            "energy": energy,
-            "actions": actions_taken,
-        })
-    return pd.DataFrame(records)
-
-
-def _rollout_heuristic(strategy_name, config, n_episodes,
-                       num_bs):
-    """Apply a fixed heuristic strategy across n_episodes,
-    one random BS failure per episode, single-shot
-    compensation (no multi-step iteration)."""
-    records = []
-    for ep in range(n_episodes):
-        failed_bs = ep % num_bs
-        net = create_network(config, seed=1000 + ep,
-                            verbose=False)
-        _, net_after = simulate_outage(
-            net, failed_bs, verbose=False)
-
-        net_compensated = copy.deepcopy(net_after)
-        if strategy_name != "No Action":
-            method = STRATEGY_FUNCS[strategy_name]
-            getattr(net_compensated, method)(failed_bs)
-            net_compensated.compute_association_and_sinr()
-
-        stats = net_compensated.get_stats()
-        boost = getattr(net_compensated,
-                       "last_energy_used", 0.0)
-
-        records.append({
-            "episode": ep,
-            "failed_bs": failed_bs,
-            "coverage_pct": stats["coverage_pct"],
-            "solved": stats["coverage_pct"] >= 99.999,
-            "steps": 1,
-            "energy": boost,
-        })
-    return pd.DataFrame(records)
-
-def evaluate_heuristic(strategy_name,
-                        action_id,
-                        n_episodes=200,
-                        seed_offset=9999):
+# ============================================================
+# Heuristic evaluator (verbatim from validated notebook code)
+# ============================================================
+def evaluate_heuristic(strategy_name, action_id,
+                       config, n_episodes=500,
+                       seed_offset=9999):
     results = {
         'coverage_pct'       : [],
         'mean_sinr_db'       : [],
@@ -95,7 +33,6 @@ def evaluate_heuristic(strategy_name,
         'failed_bs_id'       : [],
         'mean_throughput'    : [],
         'total_power_boost'  : [],
-        # New power metrics — same as RL agent
         'cumulative_energy'  : [],
         'avg_boost_per_step' : [],
         'power_efficiency'   : [],
@@ -105,7 +42,7 @@ def evaluate_heuristic(strategy_name,
     }
 
     env = SelfHealingNetworkEnv(
-        config         = CFG,
+        config         = config,
         max_steps      = 10,
         n_normal_steps = 5,
         ue_step_size_m = 10.0,
@@ -120,19 +57,17 @@ def evaluate_heuristic(strategy_name,
 
         baseline_outage_ues = env._baseline_outage_ues
 
-        # Apply heuristic on step 1
         cumulative_energy = 0.0
         tilt_only_steps   = 0
         zero_boost_steps  = 0
         n_steps           = 0
 
-        obs, reward, term, trunc, info = env.step(
-            action_id)
+        # Apply heuristic once on step 1
+        obs, reward, term, trunc, info = env.step(action_id)
         n_steps += 1
 
         step_boost = sum(
-            max(bs.tx_power_dbm -
-                bs.nominal_power_dbm, 0.0)
+            max(bs.tx_power_dbm - bs.nominal_power_dbm, 0.0)
             for bs in env.network.base_stations
             if bs.is_active)
         cumulative_energy += step_boost
@@ -143,14 +78,13 @@ def evaluate_heuristic(strategy_name,
 
         done = term or trunc
 
-        # Do nothing for remaining steps
+        # Hold (no-op) for remaining steps
         while not done:
             obs, reward, term, trunc, info = env.step(0)
             n_steps += 1
 
             step_boost = sum(
-                max(bs.tx_power_dbm -
-                    bs.nominal_power_dbm, 0.0)
+                max(bs.tx_power_dbm - bs.nominal_power_dbm, 0.0)
                 for bs in env.network.base_stations
                 if bs.is_active)
             cumulative_energy += step_boost
@@ -162,66 +96,51 @@ def evaluate_heuristic(strategy_name,
         solved = (stats['ues_in_outage'] == 0)
 
         n_rescued = max(
-            baseline_outage_ues -
-            stats['ues_in_outage'], 0)
+            baseline_outage_ues - stats['ues_in_outage'], 0)
 
         if cumulative_energy > 0.01:
-            pwr_efficiency = (n_rescued /
-                               cumulative_energy)
+            pwr_efficiency = n_rescued / cumulative_energy
         else:
             pwr_efficiency = (float(n_rescued) * 10.0
-                               if n_rescued > 0
-                               else 0.0)
+                              if n_rescued > 0 else 0.0)
 
         avg_boost = (cumulative_energy / n_steps
-                     if n_steps > 0 else 0.0)
+                    if n_steps > 0 else 0.0)
         zero_frac = (zero_boost_steps / n_steps
-                     if n_steps > 0 else 0.0)
+                    if n_steps > 0 else 0.0)
 
         final_boost = sum(
-            max(bs.tx_power_dbm -
-                bs.nominal_power_dbm, 0)
+            max(bs.tx_power_dbm - bs.nominal_power_dbm, 0)
             for bs in env.network.base_stations
             if bs.is_active)
 
-        results['coverage_pct'].append(
-            stats['coverage_pct'])
-        results['mean_sinr_db'].append(
-            stats['mean_sinr_db'])
-        results['ues_in_outage'].append(
-            stats['ues_in_outage'])
+        results['coverage_pct'].append(stats['coverage_pct'])
+        results['mean_sinr_db'].append(stats['mean_sinr_db'])
+        results['ues_in_outage'].append(stats['ues_in_outage'])
         results['solved'].append(int(solved))
-        results['failed_bs_id'].append(
-            info['failed_bs_id'])
+        results['failed_bs_id'].append(info['failed_bs_id'])
         results['mean_throughput'].append(
             stats.get('mean_throughput', 0))
-        results['steps_to_solve'].append(
-            1 if solved else 10)
-        results['total_power_boost'].append(
-            final_boost)
-        results['cumulative_energy'].append(
-            cumulative_energy)
-        results['avg_boost_per_step'].append(
-            avg_boost)
-        results['power_efficiency'].append(
-            pwr_efficiency)
-        results['tilt_only_steps'].append(
-            tilt_only_steps)
-        results['zero_boost_fraction'].append(
-            zero_frac)
+        results['steps_to_solve'].append(1 if solved else 10)
+        results['total_power_boost'].append(final_boost)
+        results['cumulative_energy'].append(cumulative_energy)
+        results['avg_boost_per_step'].append(avg_boost)
+        results['power_efficiency'].append(pwr_efficiency)
+        results['tilt_only_steps'].append(tilt_only_steps)
+        results['zero_boost_fraction'].append(zero_frac)
         results['n_steps_taken'].append(n_steps)
 
-    return {k: np.array(v)
-            for k, v in results.items()}
+    return {k: np.array(v) for k, v in results.items()}
 
 
-def evaluate_rl_agent(model, model_name,
-                       n_episodes=200,
-                       seed_offset=99999):
+# ============================================================
+# RL agent evaluator (verbatim from validated notebook code)
+# ============================================================
+def evaluate_rl_agent(model, model_name, config,
+                      n_episodes=500, seed_offset=99999):
     """
     Evaluate a trained RL agent over n_episodes.
     Agent selects actions greedily (deterministic).
-    Records same metrics as heuristic evaluator.
     """
     results = {
         'coverage_pct'     : [],
@@ -233,17 +152,16 @@ def evaluate_rl_agent(model, model_name,
         'mean_throughput'  : [],
         'total_power_boost': [],
         'actions_taken'    : [],
-        # ── New power metrics ──────────────────────
-        'cumulative_energy'  : [],   # Σ boost (dB·steps)
-        'avg_boost_per_step' : [],   # dB per step
-        'power_efficiency'   : [],   # UEs/dB·step
-        'tilt_only_steps'    : [],   # steps with 0 boost
-        'zero_boost_fraction': [],   # fraction of steps
-        'n_steps_taken'      : [],   # actual steps used
+        'cumulative_energy'  : [],
+        'avg_boost_per_step' : [],
+        'power_efficiency'   : [],
+        'tilt_only_steps'    : [],
+        'zero_boost_fraction': [],
+        'n_steps_taken'      : [],
     }
 
     env = SelfHealingNetworkEnv(
-        config         = CFG,
+        config         = config,
         max_steps      = 10,
         n_normal_steps = 5,
         ue_step_size_m = 10.0,
@@ -259,188 +177,158 @@ def evaluate_rl_agent(model, model_name,
         done        = False
         ep_actions  = []
         step_solved = None
-        cumulative_energy = 0.0   # Σ boost over episode
+        cumulative_energy = 0.0
         tilt_only_steps  = 0
         zero_boost_steps = 0
         n_steps          = 0
 
         while not done:
-            # Greedy action selection (no exploration)
-            action, _ = model.predict(
-                obs, deterministic=True)
-            obs, reward, term, trunc, info = env.step(
-                int(action))
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, term, trunc, info = env.step(int(action))
             ep_actions.append(int(action))
+            n_steps += 1
             done = term or trunc
 
             if term and step_solved is None:
                 step_solved = env._step_count
 
-            # ── Measure power boost at THIS step ──────
-            # Must be measured AFTER env.step() applies
-            # the action, before the next reset.
-            # This captures the actual power state the
-            # network operated under this step.
             step_boost = sum(
-                max(bs.tx_power_dbm -
-                    bs.nominal_power_dbm, 0.0)
+                max(bs.tx_power_dbm - bs.nominal_power_dbm, 0.0)
                 for bs in env.network.base_stations
                 if bs.is_active)
-
             cumulative_energy += step_boost
 
-            # Track zero-boost steps (tilt or do-nothing)
             if step_boost < 0.01:
                 zero_boost_steps += 1
-                # Check if a tilt action was used
                 if int(action) in {5, 6}:
                     tilt_only_steps += 1
 
         stats  = info['stats_after']
         solved = (stats['ues_in_outage'] == 0)
 
-        # UEs rescued relative to post-outage baseline
         n_rescued = max(
-            baseline_outage_ues -
-            stats['ues_in_outage'], 0)
+            baseline_outage_ues - stats['ues_in_outage'], 0)
 
-        # Power efficiency: UEs rescued per dB·step
-        # Handle zero-energy episodes (tilt only)
         if cumulative_energy > 0.01:
             pwr_efficiency = n_rescued / cumulative_energy
         else:
-            # Tilt-only rescues are infinitely efficient
-            # Cap at a large finite value for averaging
             pwr_efficiency = (float(n_rescued) * 10.0
-                               if n_rescued > 0
-                               else 0.0)
+                              if n_rescued > 0 else 0.0)
 
         avg_boost = (cumulative_energy / n_steps
-                     if n_steps > 0 else 0.0)
-
+                    if n_steps > 0 else 0.0)
         zero_boost_frac = (zero_boost_steps / n_steps
                            if n_steps > 0 else 0.0)
 
-        # Final step total boost (kept for compatibility
-        # with heuristic comparison)
         final_boost = sum(
-            max(bs.tx_power_dbm -
-                bs.nominal_power_dbm, 0)
+            max(bs.tx_power_dbm - bs.nominal_power_dbm, 0)
             for bs in env.network.base_stations
             if bs.is_active)
 
-        results['coverage_pct'].append(
-            stats['coverage_pct'])
-        results['mean_sinr_db'].append(
-            stats['mean_sinr_db'])
-        results['ues_in_outage'].append(
-            stats['ues_in_outage'])
+        results['coverage_pct'].append(stats['coverage_pct'])
+        results['mean_sinr_db'].append(stats['mean_sinr_db'])
+        results['ues_in_outage'].append(stats['ues_in_outage'])
         results['solved'].append(int(solved))
-        results['failed_bs_id'].append(
-            info['failed_bs_id'])
+        results['failed_bs_id'].append(info['failed_bs_id'])
         results['mean_throughput'].append(
             stats.get('mean_throughput', 0))
         results['steps_to_solve'].append(
-            step_solved if step_solved
-            else env._step_count)
+            step_solved if step_solved else env._step_count)
         results['actions_taken'].append(ep_actions)
-        results['total_power_boost'].append(
-            final_boost)
-
-        # New metrics
-        results['cumulative_energy'].append(
-            cumulative_energy)
-        results['avg_boost_per_step'].append(
-            avg_boost)
-        results['power_efficiency'].append(
-            pwr_efficiency)
-        results['tilt_only_steps'].append(
-            tilt_only_steps)
-        results['zero_boost_fraction'].append(
-            zero_boost_frac)
+        results['total_power_boost'].append(final_boost)
+        results['cumulative_energy'].append(cumulative_energy)
+        results['avg_boost_per_step'].append(avg_boost)
+        results['power_efficiency'].append(pwr_efficiency)
+        results['tilt_only_steps'].append(tilt_only_steps)
+        results['zero_boost_fraction'].append(zero_boost_frac)
         results['n_steps_taken'].append(n_steps)
 
-    return {k: (np.array(v)
-                if k != 'actions_taken' else v)
+    return {k: (np.array(v) if k != 'actions_taken' else v)
             for k, v in results.items()}
 
 
-def evaluate_models(agents, env_factory, config,
-                    n_episodes=500, num_bs=7,
-                    save_dir="results",
-                    fig_dir="docs/figures",
-                    strategies=None, verbose=True):
+# ============================================================
+# Orchestrator (replaces previous evaluate_models internals)
+# ============================================================
+STRATEGY_ACTION_IDS = {
+    'No Healing'       : 0,
+    'S1: Fixed'        : 1,
+    'S2: Proportional' : 2,
+    'S3: Best Nbr'     : 3,
+    'S4: Simultaneous' : 4,
+    'S5: Tilt Only'    : 5,
+    'S6: Joint'        : 6,
+}
+
+
+def evaluate_models(agents, config, n_episodes=500,
+                    num_bs=7, save_dir="results",
+                    fig_dir="docs/figures", verbose=True):
     """
     Full paper-results evaluation: compares trained RL
-    agents against all six heuristic compensation
-    strategies (plus a no-action baseline) over
-    n_episodes test episodes.
+    agents against all six heuristic strategies (plus a
+    no-action baseline) over n_episodes test episodes,
+    using the exact validated evaluate_heuristic /
+    evaluate_rl_agent procedures.
 
     Parameters
     ----------
     agents : dict[str, SB3 model]
         e.g. {"DQN": dqn_model, "PPO": ppo_model}.
-    env_factory : callable
-        Zero-arg callable returning a fresh SelfHealingEnv
-        instance for agent rollouts
-        (e.g. lambda: SelfHealingEnv(config=config)).
     config : SimConfig
-        Used for heuristic-strategy rollouts.
     n_episodes : int
-        Number of test episodes per method.
     num_bs : int
-        Number of BSs (for round-robin failure selection
-        and the per-BS heatmap).
-    save_dir : str
-        Directory for result CSVs.
-    fig_dir : str
-        Directory for result figures.
-    strategies : list[str] or None
-        Heuristic strategies to include
-        (default: all S1-S6 + No Action).
+    save_dir, fig_dir : str
     verbose : bool
 
     Returns
     -------
     summary_df : pd.DataFrame
-        One row per method with mean coverage, solve rate,
-        mean energy, mean steps.
-    raw_results : dict[str, pd.DataFrame]
-        Full per-episode results for every method.
+    raw_results : dict[str, dict]
+        Method name -> full results dict
+        (as returned by evaluate_heuristic / evaluate_rl_agent).
     """
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(fig_dir, exist_ok=True)
-    strategies = strategies or (
-        ["No Action"] + list(STRATEGY_FUNCS.keys()))
 
     raw_results = {}
 
-    # --- Heuristic strategies ---
-    for strat in strategies:
+    # --- Heuristic strategies (incl. No Healing) ---
+    for name, action_id in STRATEGY_ACTION_IDS.items():
         if verbose:
-            print(f"[evaluate_models] Running heuristic "
-                 f"'{strat}' for {n_episodes} episodes...")
-        raw_results[strat] = _rollout_heuristic(
-            strat, config, n_episodes, num_bs)
+            print(f"[evaluate_models] Evaluating "
+                 f"'{name}'...", end=" ")
+        raw_results[name] = evaluate_heuristic(
+            name, action_id, config,
+            n_episodes=n_episodes, seed_offset=9999)
+        if verbose:
+            cov = np.mean(raw_results[name]['coverage_pct'])
+            sol = np.mean(raw_results[name]['solved']) * 100
+            print(f"Cov={cov:.1f}% | Solved={sol:.1f}%")
 
     # --- RL agents ---
     for name, model in agents.items():
         if verbose:
-            print(f"[evaluate_models] Running agent "
-                 f"'{name}' for {n_episodes} episodes...")
-        env = env_factory()
-        raw_results[name] = _rollout_agent(
-            model, env, n_episodes)
+            print(f"[evaluate_models] Evaluating "
+                 f"'{name}'...", end=" ")
+        raw_results[name] = evaluate_rl_agent(
+            model, name, config,
+            n_episodes=n_episodes, seed_offset=99999)
+        if verbose:
+            cov = np.mean(raw_results[name]['coverage_pct'])
+            sol = np.mean(raw_results[name]['solved']) * 100
+            print(f"Cov={cov:.1f}% | Solved={sol:.1f}%")
 
     # --- Summary table ---
     rows = []
-    for method, df in raw_results.items():
+    for method, res in raw_results.items():
         rows.append({
             "method": method,
-            "mean_coverage_pct": df["coverage_pct"].mean(),
-            "solve_rate_pct": 100 * df["solved"].mean(),
-            "mean_energy_dB_steps": df["energy"].mean(),
-            "mean_steps": df["steps"].mean(),
+            "mean_coverage_pct": np.mean(res['coverage_pct']),
+            "solve_rate_pct": np.mean(res['solved']) * 100,
+            "mean_energy_dB_steps": np.mean(
+                res['cumulative_energy']),
+            "mean_steps": np.mean(res['n_steps_taken']),
         })
     summary_df = pd.DataFrame(rows).sort_values(
         "mean_coverage_pct", ascending=False)
@@ -448,9 +336,14 @@ def evaluate_models(agents, env_factory, config,
         os.path.join(save_dir, "evaluation_summary.csv"),
         index=False)
 
-    for method, df in raw_results.items():
-        df.to_csv(os.path.join(
-            save_dir, f"raw_{method.replace(' ', '_')}.csv"),
+    for method, res in raw_results.items():
+        # actions_taken is a list-of-lists for RL agents;
+        # drop it before building a flat per-episode CSV
+        flat = {k: v for k, v in res.items()
+               if k != 'actions_taken'}
+        pd.DataFrame(flat).to_csv(
+            os.path.join(save_dir,
+                        f"raw_{method.replace(' ', '_').replace(':','')}.csv"),
             index=False)
 
     if verbose:
@@ -462,10 +355,8 @@ def evaluate_models(agents, env_factory, config,
     # --- Figures ---
     _plot_coverage_solve_rate(summary_df, fig_dir)
     _plot_energy_steps(summary_df, fig_dir)
-    _plot_action_distribution(raw_results, agents.keys(),
-                              fig_dir)
-    _plot_bs_heatmap(raw_results, agents.keys(), num_bs,
-                     fig_dir)
+    _plot_action_distribution(raw_results, agents.keys(), fig_dir)
+    _plot_bs_heatmap(raw_results, agents.keys(), num_bs, fig_dir)
 
     return summary_df, raw_results
 
@@ -478,17 +369,14 @@ def _plot_coverage_solve_rate(summary_df, fig_dir):
     ax1.set_ylabel("Mean Coverage (%)")
     ax2 = ax1.twinx()
     ax2.bar(x + 0.2, summary_df["solve_rate_pct"],
-           width=0.4, label="Solve Rate (%)",
-           color="indianred")
+           width=0.4, label="Solve Rate (%)", color="indianred")
     ax2.set_ylabel("Solve Rate (%)")
     ax1.set_xticks(x)
-    ax1.set_xticklabels(summary_df["method"], rotation=45,
-                        ha="right")
+    ax1.set_xticklabels(summary_df["method"], rotation=45, ha="right")
     fig.legend(loc="upper right")
     plt.title("Coverage & Solve Rate by Method")
     plt.tight_layout()
-    plt.savefig(os.path.join(fig_dir,
-              "coverage_solve_rate.png"), dpi=300)
+    plt.savefig(os.path.join(fig_dir, "coverage_solve_rate.png"), dpi=300)
     plt.close(fig)
 
 
@@ -496,67 +384,59 @@ def _plot_energy_steps(summary_df, fig_dir):
     fig, ax1 = plt.subplots(figsize=(10, 5))
     x = np.arange(len(summary_df))
     ax1.bar(x - 0.2, summary_df["mean_energy_dB_steps"],
-           width=0.4, label="Energy (dB·steps)",
-           color="darkorange")
+           width=0.4, label="Energy (dB·steps)", color="darkorange")
     ax1.set_ylabel("Mean Cumulative Energy (dB·steps)")
     ax2 = ax1.twinx()
     ax2.plot(x, summary_df["mean_steps"], "o-",
            color="seagreen", label="Mean Steps")
     ax2.set_ylabel("Mean Steps to Resolution")
     ax1.set_xticks(x)
-    ax1.set_xticklabels(summary_df["method"], rotation=45,
-                        ha="right")
+    ax1.set_xticklabels(summary_df["method"], rotation=45, ha="right")
     fig.legend(loc="upper right")
     plt.title("Compensation Energy & Steps by Method")
     plt.tight_layout()
-    plt.savefig(os.path.join(fig_dir,
-              "energy_steps.png"), dpi=300)
+    plt.savefig(os.path.join(fig_dir, "energy_steps.png"), dpi=300)
     plt.close(fig)
 
 
-def _plot_action_distribution(raw_results, agent_names,
-                              fig_dir):
+def _plot_action_distribution(raw_results, agent_names, fig_dir):
     for name in agent_names:
-        df = raw_results.get(name)
-        if df is None or "actions" not in df.columns:
+        res = raw_results.get(name)
+        if res is None or "actions_taken" not in res:
             continue
-        all_actions = [a for lst in df["actions"]
-                      for a in lst]
+        all_actions = [a for lst in res["actions_taken"] for a in lst]
         if not all_actions:
             continue
         fig, ax = plt.subplots(figsize=(7, 4))
-        ax.hist(all_actions,
-               bins=np.arange(max(all_actions) + 2) - 0.5,
+        ax.hist(all_actions, bins=np.arange(max(all_actions) + 2) - 0.5,
                rwidth=0.8, color="slateblue")
         ax.set_xlabel("Action ID")
         ax.set_ylabel("Frequency")
         ax.set_title(f"{name} Action Distribution")
         plt.tight_layout()
-        plt.savefig(os.path.join(
-            fig_dir, f"action_dist_{name.lower()}.png"),
-            dpi=300)
+        plt.savefig(os.path.join(fig_dir, f"action_dist_{name.lower()}.png"),
+                   dpi=300)
         plt.close(fig)
 
 
-def _plot_bs_heatmap(raw_results, agent_names, num_bs,
-                     fig_dir):
+def _plot_bs_heatmap(raw_results, agent_names, num_bs, fig_dir):
     for name in agent_names:
-        df = raw_results.get(name)
-        if df is None or "failed_bs" not in df.columns:
+        res = raw_results.get(name)
+        if res is None or "failed_bs_id" not in res:
             continue
-        pivot = df.groupby("failed_bs")[
-            "coverage_pct"].mean().reindex(
+        df = pd.DataFrame({
+            "failed_bs": res["failed_bs_id"],
+            "coverage_pct": res["coverage_pct"],
+        })
+        pivot = df.groupby("failed_bs")["coverage_pct"].mean().reindex(
             range(num_bs))
         fig, ax = plt.subplots(figsize=(8, 1.5))
-        sns.heatmap(pivot.to_frame().T, annot=True,
-                   fmt=".1f", cmap="RdYlGn",
-                   cbar_kws={"label": "Coverage (%)"},
-                   ax=ax)
+        sns.heatmap(pivot.to_frame().T, annot=True, fmt=".1f",
+                   cmap="RdYlGn", cbar_kws={"label": "Coverage (%)"}, ax=ax)
         ax.set_yticks([])
         ax.set_xlabel("Failed BS ID")
         ax.set_title(f"{name}: Per-BS Coverage Heatmap")
         plt.tight_layout()
-        plt.savefig(os.path.join(
-            fig_dir, f"bs_heatmap_{name.lower()}.png"),
-            dpi=300)
+        plt.savefig(os.path.join(fig_dir, f"bs_heatmap_{name.lower()}.png"),
+                   dpi=300)
         plt.close(fig)
