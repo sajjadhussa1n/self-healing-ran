@@ -5,7 +5,7 @@ agents bound to the SelfHealingEnv.
 from stable_baselines3 import DQN, PPO
 from stable_baselines3.common.env_util import make_vec_env
 
-from src.environment.gym_env import SelfHealingEnv
+from src.environment.gym_env import SelfHealingNetworkEnv
 
 
 def create_DQN_agent(config=None, env_kwargs=None,
