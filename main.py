@@ -14,7 +14,7 @@ from src.compensation.pipeline import simulate_coc_strategies
 from src.agents.factory import create_DQN_agent, create_PPO_agent
 from src.agents.training import train_DRL_agents, load_trained_agents
 from src.agents.evaluation import evaluate_models
-from src.environment.gym_env import SelfHealingEnv
+from src.environment.gym_env import SelfHealingNetworkEnv
 
 
 def main():
@@ -108,7 +108,7 @@ def main():
     eval_cfg = pcfg["evaluation"]
     summary_df, raw_results = evaluate_models(
         agents=agents,
-        env_factory=lambda: SelfHealingEnv(config=config),
+        env_factory=lambda: SelfHealingNetworkEnv(config=config),
         config=config,
         n_episodes=eval_cfg["n_episodes"],
         num_bs=config.NUM_BS,
