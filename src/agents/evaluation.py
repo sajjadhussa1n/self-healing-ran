@@ -82,6 +82,288 @@ def _rollout_heuristic(strategy_name, config, n_episodes,
         })
     return pd.DataFrame(records)
 
+def evaluate_heuristic(strategy_name,
+                        action_id,
+                        n_episodes=200,
+                        seed_offset=9999):
+    results = {
+        'coverage_pct'       : [],
+        'mean_sinr_db'       : [],
+        'ues_in_outage'      : [],
+        'steps_to_solve'     : [],
+        'solved'             : [],
+        'failed_bs_id'       : [],
+        'mean_throughput'    : [],
+        'total_power_boost'  : [],
+        # New power metrics — same as RL agent
+        'cumulative_energy'  : [],
+        'avg_boost_per_step' : [],
+        'power_efficiency'   : [],
+        'tilt_only_steps'    : [],
+        'zero_boost_fraction': [],
+        'n_steps_taken'      : [],
+    }
+
+    env = SelfHealingNetworkEnv(
+        config         = CFG,
+        max_steps      = 10,
+        n_normal_steps = 5,
+        ue_step_size_m = 10.0,
+        failed_bs_id   = None,
+        use_curriculum = False,
+        suppress_output= True,
+        verbose        = False)
+
+    for ep in range(n_episodes):
+        env._episode_count = seed_offset + ep
+        obs, info          = env.reset()
+
+        baseline_outage_ues = env._baseline_outage_ues
+
+        # Apply heuristic on step 1
+        cumulative_energy = 0.0
+        tilt_only_steps   = 0
+        zero_boost_steps  = 0
+        n_steps           = 0
+
+        obs, reward, term, trunc, info = env.step(
+            action_id)
+        n_steps += 1
+
+        step_boost = sum(
+            max(bs.tx_power_dbm -
+                bs.nominal_power_dbm, 0.0)
+            for bs in env.network.base_stations
+            if bs.is_active)
+        cumulative_energy += step_boost
+        if step_boost < 0.01:
+            zero_boost_steps += 1
+            if action_id in {5, 6}:
+                tilt_only_steps += 1
+
+        done = term or trunc
+
+        # Do nothing for remaining steps
+        while not done:
+            obs, reward, term, trunc, info = env.step(0)
+            n_steps += 1
+
+            step_boost = sum(
+                max(bs.tx_power_dbm -
+                    bs.nominal_power_dbm, 0.0)
+                for bs in env.network.base_stations
+                if bs.is_active)
+            cumulative_energy += step_boost
+            if step_boost < 0.01:
+                zero_boost_steps += 1
+            done = term or trunc
+
+        stats  = info['stats_after']
+        solved = (stats['ues_in_outage'] == 0)
+
+        n_rescued = max(
+            baseline_outage_ues -
+            stats['ues_in_outage'], 0)
+
+        if cumulative_energy > 0.01:
+            pwr_efficiency = (n_rescued /
+                               cumulative_energy)
+        else:
+            pwr_efficiency = (float(n_rescued) * 10.0
+                               if n_rescued > 0
+                               else 0.0)
+
+        avg_boost = (cumulative_energy / n_steps
+                     if n_steps > 0 else 0.0)
+        zero_frac = (zero_boost_steps / n_steps
+                     if n_steps > 0 else 0.0)
+
+        final_boost = sum(
+            max(bs.tx_power_dbm -
+                bs.nominal_power_dbm, 0)
+            for bs in env.network.base_stations
+            if bs.is_active)
+
+        results['coverage_pct'].append(
+            stats['coverage_pct'])
+        results['mean_sinr_db'].append(
+            stats['mean_sinr_db'])
+        results['ues_in_outage'].append(
+            stats['ues_in_outage'])
+        results['solved'].append(int(solved))
+        results['failed_bs_id'].append(
+            info['failed_bs_id'])
+        results['mean_throughput'].append(
+            stats.get('mean_throughput', 0))
+        results['steps_to_solve'].append(
+            1 if solved else 10)
+        results['total_power_boost'].append(
+            final_boost)
+        results['cumulative_energy'].append(
+            cumulative_energy)
+        results['avg_boost_per_step'].append(
+            avg_boost)
+        results['power_efficiency'].append(
+            pwr_efficiency)
+        results['tilt_only_steps'].append(
+            tilt_only_steps)
+        results['zero_boost_fraction'].append(
+            zero_frac)
+        results['n_steps_taken'].append(n_steps)
+
+    return {k: np.array(v)
+            for k, v in results.items()}
+
+
+def evaluate_rl_agent(model, model_name,
+                       n_episodes=200,
+                       seed_offset=99999):
+    """
+    Evaluate a trained RL agent over n_episodes.
+    Agent selects actions greedily (deterministic).
+    Records same metrics as heuristic evaluator.
+    """
+    results = {
+        'coverage_pct'     : [],
+        'mean_sinr_db'     : [],
+        'ues_in_outage'    : [],
+        'steps_to_solve'   : [],
+        'solved'           : [],
+        'failed_bs_id'     : [],
+        'mean_throughput'  : [],
+        'total_power_boost': [],
+        'actions_taken'    : [],
+        # ── New power metrics ──────────────────────
+        'cumulative_energy'  : [],   # Σ boost (dB·steps)
+        'avg_boost_per_step' : [],   # dB per step
+        'power_efficiency'   : [],   # UEs/dB·step
+        'tilt_only_steps'    : [],   # steps with 0 boost
+        'zero_boost_fraction': [],   # fraction of steps
+        'n_steps_taken'      : [],   # actual steps used
+    }
+
+    env = SelfHealingNetworkEnv(
+        config         = CFG,
+        max_steps      = 10,
+        n_normal_steps = 5,
+        ue_step_size_m = 10.0,
+        failed_bs_id   = None,
+        use_curriculum = False,
+        verbose        = False)
+
+    for ep in range(n_episodes):
+        env._episode_count = seed_offset + ep
+        obs, info          = env.reset()
+        baseline_outage_ues = env._baseline_outage_ues
+
+        done        = False
+        ep_actions  = []
+        step_solved = None
+        cumulative_energy = 0.0   # Σ boost over episode
+        tilt_only_steps  = 0
+        zero_boost_steps = 0
+        n_steps          = 0
+
+        while not done:
+            # Greedy action selection (no exploration)
+            action, _ = model.predict(
+                obs, deterministic=True)
+            obs, reward, term, trunc, info = env.step(
+                int(action))
+            ep_actions.append(int(action))
+            done = term or trunc
+
+            if term and step_solved is None:
+                step_solved = env._step_count
+
+            # ── Measure power boost at THIS step ──────
+            # Must be measured AFTER env.step() applies
+            # the action, before the next reset.
+            # This captures the actual power state the
+            # network operated under this step.
+            step_boost = sum(
+                max(bs.tx_power_dbm -
+                    bs.nominal_power_dbm, 0.0)
+                for bs in env.network.base_stations
+                if bs.is_active)
+
+            cumulative_energy += step_boost
+
+            # Track zero-boost steps (tilt or do-nothing)
+            if step_boost < 0.01:
+                zero_boost_steps += 1
+                # Check if a tilt action was used
+                if int(action) in {5, 6}:
+                    tilt_only_steps += 1
+
+        stats  = info['stats_after']
+        solved = (stats['ues_in_outage'] == 0)
+
+        # UEs rescued relative to post-outage baseline
+        n_rescued = max(
+            baseline_outage_ues -
+            stats['ues_in_outage'], 0)
+
+        # Power efficiency: UEs rescued per dB·step
+        # Handle zero-energy episodes (tilt only)
+        if cumulative_energy > 0.01:
+            pwr_efficiency = n_rescued / cumulative_energy
+        else:
+            # Tilt-only rescues are infinitely efficient
+            # Cap at a large finite value for averaging
+            pwr_efficiency = (float(n_rescued) * 10.0
+                               if n_rescued > 0
+                               else 0.0)
+
+        avg_boost = (cumulative_energy / n_steps
+                     if n_steps > 0 else 0.0)
+
+        zero_boost_frac = (zero_boost_steps / n_steps
+                           if n_steps > 0 else 0.0)
+
+        # Final step total boost (kept for compatibility
+        # with heuristic comparison)
+        final_boost = sum(
+            max(bs.tx_power_dbm -
+                bs.nominal_power_dbm, 0)
+            for bs in env.network.base_stations
+            if bs.is_active)
+
+        results['coverage_pct'].append(
+            stats['coverage_pct'])
+        results['mean_sinr_db'].append(
+            stats['mean_sinr_db'])
+        results['ues_in_outage'].append(
+            stats['ues_in_outage'])
+        results['solved'].append(int(solved))
+        results['failed_bs_id'].append(
+            info['failed_bs_id'])
+        results['mean_throughput'].append(
+            stats.get('mean_throughput', 0))
+        results['steps_to_solve'].append(
+            step_solved if step_solved
+            else env._step_count)
+        results['actions_taken'].append(ep_actions)
+        results['total_power_boost'].append(
+            final_boost)
+
+        # New metrics
+        results['cumulative_energy'].append(
+            cumulative_energy)
+        results['avg_boost_per_step'].append(
+            avg_boost)
+        results['power_efficiency'].append(
+            pwr_efficiency)
+        results['tilt_only_steps'].append(
+            tilt_only_steps)
+        results['zero_boost_fraction'].append(
+            zero_boost_frac)
+        results['n_steps_taken'].append(n_steps)
+
+    return {k: (np.array(v)
+                if k != 'actions_taken' else v)
+            for k, v in results.items()}
+
 
 def evaluate_models(agents, env_factory, config,
                     n_episodes=500, num_bs=7,
