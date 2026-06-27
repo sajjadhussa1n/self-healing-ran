@@ -32,16 +32,18 @@ def create_DQN_agent(config=None, env_kwargs=None,
     """
     env_kwargs = env_kwargs or {}
     env = SelfHealingNetworkEnv(config=config, **env_kwargs)
+    if policy_kwargs is None:
+        policy_kwargs = dict(net_arch=[256, 256, 128])
 
     default_kwargs = dict(
-        learning_rate=1e-4,
-        buffer_size=50_000,
-        learning_starts=1_000,
-        batch_size=64,
+        learning_rate=3e-4,
+        buffer_size=50000,
+        learning_starts=500,
+        batch_size=128,
         gamma=0.95,
-        train_freq=4,
+        train_freq=1,
         target_update_interval=500,
-        exploration_fraction=0.3,
+        exploration_fraction=0.5,
         exploration_final_eps=0.05,
         verbose=0,
     )
@@ -86,6 +88,9 @@ def create_PPO_agent(config=None, env_kwargs=None,
     else:
         env = SelfHealingNetworkEnv(config=config, **env_kwargs)
 
+    if policy_kwargs is None:
+        policy_kwargs = dict(net_arch=[256, 256, 128])
+
     default_kwargs = dict(
         learning_rate=3e-4,
         n_steps=256,
@@ -93,7 +98,7 @@ def create_PPO_agent(config=None, env_kwargs=None,
         gamma=0.95,
         gae_lambda=0.95,
         clip_range=0.2,
-        ent_coef=0.0,
+        ent_coef=0.01,
         verbose=0,
     )
     default_kwargs.update(ppo_kwargs)
