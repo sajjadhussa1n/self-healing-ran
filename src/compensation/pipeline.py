@@ -90,14 +90,14 @@ def simulate_coc_strategies(network_after_outage,
                  f"Outage UEs: {stats['ues_in_outage']}")
 
         if plot:
+        if plot:
             os.makedirs(save_dir, exist_ok=True)
             plot_network(
                 net,
-                title=f"Strategy {name} "
-                     f"(BS-{failed_bs_id} failed)",
-                save_path=os.path.join(
-                    save_dir, f"coc_{name.lower()}.png"),
-                show=False)
+                title=f"After Strategy {name} "
+                     f"({STRATEGY_FUNCS[name].replace('apply_', '').replace('_', ' ').title()})",
+                save_path=os.path.join(save_dir, f"coc_{name.lower()}.png"),
+                show=True)
 
     summary_df = pd.DataFrame(rows)
     return results, summary_df
