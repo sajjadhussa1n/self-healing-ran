@@ -88,8 +88,7 @@ def simulate_coc_strategies(network_after_outage,
             print(f"{name} ({method_name}) -> "
                  f"Coverage: {stats['coverage_pct']:.1f}%, "
                  f"Outage UEs: {stats['ues_in_outage']}")
-
-        if plot:
+            
         if plot:
             os.makedirs(save_dir, exist_ok=True)
             plot_network(
