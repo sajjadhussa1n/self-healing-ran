@@ -1,7 +1,7 @@
 <div align="center">
 
 # Self-Healing RAN
-### End-to-End Deep Reinforcement Learning for 5G Radio Access Network Self-Healing
+### Deep Reinforcement Learning for 5G Radio Access Network Self-Healing
 
 [![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-ee4c2c.svg)](https://pytorch.org)
@@ -13,11 +13,9 @@
 
 <br>
 
-**A complete, end-to-end self-healing framework for 5G RANs that jointly performs
-Cell Outage Detection (COD) and Cell Outage Compensation (COC) using Deep
-Reinforcement Learning.**
+**Joint Outage Detection and Compensation for Self-Healing 5G RAN via Deep Reinforcement Learning**
 
-*To be Submitted to IEEE Wireless Communications Letters, 2026*
+*Submitted to IEEE Wireless Communications Letters, 2026*
 
 <br>
 
@@ -311,10 +309,8 @@ self-healing-ran/
 If you use this work in your research, please cite:
 
 ```bibtex
-@article{yourname2025selfhealing,
-  title   = {An End-to-End Self-Healing Framework for 5G Radio
-             Access Networks: Joint Cell Outage Detection and
-             Deep Reinforcement Learning-Based Compensation},
+@article{HussainS2026selfhealing,
+  title   = {Joint Outage Detection and Compensation for Self-Healing 5G RAN via Deep Reinforcement Learning},
   author  = {Sajjad Hussain},
   journal = {IEEE Wireless Communications Letters},
   year    = {2026},
