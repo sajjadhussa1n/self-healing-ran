@@ -8,7 +8,7 @@ edit that file instead of this one.
 import os
 from src.utils.config_loader import load_pipeline_config
 from src.network.factory import create_network, simulate_outage
-from src.network.visualization import plot_network, plot_before_after
+from src.network.visualization import plot_network
 from src.detection.pipeline import train_cod_model
 from src.compensation.pipeline import simulate_coc_strategies
 from src.agents.factory import create_DQN_agent, create_PPO_agent
