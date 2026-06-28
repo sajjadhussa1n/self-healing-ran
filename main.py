@@ -33,10 +33,10 @@ def main():
     # ------------------------------------------------------------------
     print("\n### STEP 1: Create network ###")
     network = create_network(config)
-    plot_network(network, title="Network: Normal Operation",
-                 save_path=os.path.join(
-                     paths["figures_dir"], "01_network_normal.png"),
-                 show=False)
+    plot_network(network, title="Before Outage (Normal Operation)",
+                save_path=os.path.join(paths["figures_dir"],
+                                       "01_before_outage.png"),
+                show=True)
 
     # ------------------------------------------------------------------
     # 2. Simulate outage, visualise before/after
@@ -44,11 +44,11 @@ def main():
     print("\n### STEP 2: Simulate outage ###")
     network_before, network_after = simulate_outage(
         network, failed_bs_id=FAILED_BS_ID, severity=SEVERITY)
-    plot_before_after(
-        network_before, network_after,
-        save_path=os.path.join(
-            paths["figures_dir"], "02_before_after_outage.png"),
-        show=False)
+    plot_network(network_after,
+                title=f"After Outage (BS-{FAILED_BS_ID} Failed)",
+                save_path=os.path.join(paths["figures_dir"],
+                                       "02_after_outage.png"),
+                show=True)
 
     # ------------------------------------------------------------------
     # 3. Train and evaluate COD models
