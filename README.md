@@ -19,7 +19,6 @@
 
 <br>
 
-![Pipeline Overview](docs/architecture.png)
 
 </div>
 
@@ -41,12 +40,12 @@ system** that:
 | Method | Coverage | Solve Rate | Avg Steps |
 |--------|----------|------------|-----------|
 | No Healing | 91.5% | 0.0% | — |
-| Best Heuristic (S3) | 97.0% | 4.8% | 9.6 |
-| PPO Agent | 96.7% | 40.5% | 6.2 |
-| **DQN Agent (ours)** | **99.2%** | **55.0%** | **5.0** |
+| Best Heuristic (S3) | 97.0% | 5.0% | 8.5 |
+| PPO Agent | 98.0% | 51.8% | 5.9 |
+| **DQN Agent (ours)** | **99.1%** | **54.0%** | **5.1** |
 
-> The DQN agent achieves **55% full coverage restoration** vs **4.8% for the best
-> heuristic** — an **11× improvement in solve rate** — while using **30% less
+> The DQN agent achieves **54% full coverage restoration** vs **5% for the best
+> heuristic** — an **11× improvement in solve rate** — while using **less
 > power boost** than naive strategies.
 
 ---
@@ -95,8 +94,8 @@ system** that:
 │  ┌─────────────────────┐  ┌─────────────────────────┐   │
 │  │    DQN Agent        │  │      PPO Agent          │   │
 │  │  [256→256→128→7]    │  │   [256→256→128→7]       │   │
-│  │  Cov: 99.2%         │  │   Cov: 96.7%            │   │
-│  │  Solve: 55.0%       │  │   Solve: 40.5%          │   │
+│  │  Cov: 99.1%         │  │   Cov: 98%              │   │
+│  │  Solve: 54.0%       │  │   Solve: 51.8%          │   │
 │  └─────────────────────┘  └─────────────────────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -109,9 +108,9 @@ system** that:
 
 | Notebook | Description | Open |
 |----------|-------------|------|
-| 01 — Network Simulation | Radio network environment, BS outage, 6 compensation strategies | [![Colab](https://img.shields.io/badge/Open-Colab-F9AB00.svg?logo=googlecolab)](https://colab.research.google.com/github/YOUR_USERNAME/self-healing-ran/blob/main/notebooks/01_network_simulation.ipynb) |
-| 02 — COD Pipeline | KPI dataset generation, 3-class classifier training | [![Colab](https://img.shields.io/badge/Open-Colab-F9AB00.svg?logo=googlecolab)](https://colab.research.google.com/github/YOUR_USERNAME/self-healing-ran/blob/main/notebooks/02_cod_pipeline.ipynb) |
-| 03 — RL Training | DQN/PPO training, evaluation vs heuristics | [![Colab](https://img.shields.io/badge/Open-Colab-F9AB00.svg?logo=googlecolab)](https://colab.research.google.com/github/YOUR_USERNAME/self-healing-ran/blob/main/notebooks/03_rl_training.ipynb) |
+| 01 — Network Simulation | Radio network environment, BS outage, 6 compensation strategies | [![Colab](https://img.shields.io/badge/Open-Colab-F9AB00.svg?logo=googlecolab)](https://colab.research.google.com/github/sajjadhussa1n/self-healing-ran/notebooks/01_network_simulation.ipynb) |
+| 02 — COD Pipeline | KPI dataset generation, 3-class classifier training | [![Colab](https://img.shields.io/badge/Open-Colab-F9AB00.svg?logo=googlecolab)](https://colab.research.google.com/github/sajjadhussa1n/self-healing-ran/notebooks/02_cod_pipeline.ipynb) |
+| 03 — RL Training | DQN/PPO training, evaluation vs heuristics | [![Colab](https://img.shields.io/badge/Open-Colab-F9AB00.svg?logo=googlecolab)](https://colab.research.google.com/github/sajjadhussa1n/self-healing-ran/notebooks/03_rl_training.ipynb) |
 
 ### Option 2 — Local Installation
 
@@ -127,30 +126,7 @@ source venv/bin/activate  # Linux/Mac
 
 # Install dependencies
 pip install -r requirements.txt
-```
-
-### Option 3 — Run Pre-trained Models
-
-```python
-from stable_baselines3 import DQN
-from src.environment.gym_env import SelfHealingNetworkEnv
-from src.config import CFG
-
-# Load pre-trained DQN agent
-model = DQN.load("models/dqn_self_healing")
-
-# Create environment
-env = SelfHealingNetworkEnv(config=CFG, verbose=True)
-obs, info = env.reset()
-
-# Run episode
-done = False
-while not done:
-    action, _ = model.predict(obs, deterministic=True)
-    obs, reward, terminated, truncated, info = env.step(action)
-    done = terminated or truncated
-
-print(f"Final coverage: {info['coverage_pct']:.1f}%")
+python3 main.py
 ```
 
 ---
@@ -189,8 +165,6 @@ print(f"Final coverage: {info['coverage_pct']:.1f}%")
 
 ### COD Performance
 
-![COD KPI Evolution](docs/figures/cod_kpi_evolution.png)
-
 | Classifier | Normal F1 | Outage F1 | Degraded F1 | Accuracy |
 |------------|-----------|-----------|-------------|----------|
 | Threshold Rule | 0.960 | 1.000 | 0.106 | 0.928 |
@@ -201,28 +175,16 @@ print(f"Final coverage: {info['coverage_pct']:.1f}%")
 
 ## Novel Contributions
 
-This project makes four contributions beyond the existing literature:
+This project makes the following contributions:
 
-**C1 — Three-Class COD:**
-Unlike binary (normal/outage) approaches, we distinguish between
-root-cause outage cells (label 1) and collaterally degraded neighbours
-(label 2), providing richer state information to the compensation agent.
+**An integrated three-class COD with DRL-COC pipeline:**
+A classifier distinguishing root-cause outage from collat
+erally degraded neighbours feeds directly into the DRL
+agent’s observation state.
 
 **C2 — Joint Power + Tilt Action Space:**
-We demonstrate analytically and empirically that power boosting alone
-cannot resolve centre-BS outage due to symmetric interference geometry.
-Antenna tilt adjustment is required — a finding supported by our
-6-strategy comparison.
-
-**C3 — End-to-End COD→COC Pipeline:**
-COD classifier output (which BS failed, confidence) is directly
-encoded in the RL agent's observation state — the first paper
-to integrate COD and COC in a unified trainable pipeline.
-
-**C4 — Geometry-Aware Emergent Policy:**
-The DQN agent learns different compensation strategies for centre
-vs edge BS outage without explicit geometric encoding, confirming
-the theoretical distinction through empirical learning.
+A joint power-and-tilt action space, with the agent shown
+to learn a geometry-aware policy achieving superior coverage, full network restoration, and compensation energy efficiency than heuristic baselines.
 
 ---
 
@@ -249,7 +211,7 @@ Own-cell (5) : ue_count, prb_load, ue_ratio,
 Neighbours   : ue_count, delta_ue, mean_sinr,
 (12 total)     prb_load × 3 nearest BSs
 
-⚠️  Deliberately excluded:
+   Deliberately excluded:
     mean_sinr (own cell) — collapses to 0 on outage
     outage_ues flag      — circular reasoning
     tx_power             — directly reveals failure
@@ -262,8 +224,8 @@ Algorithm    : DQN (primary), PPO (comparison)
 State space  : 52-dimensional normalised vector
 Action space : 7 discrete compensation strategies
 Network      : MLP [256 → 256 → 128 → 7]
-Training     : 20,000 timesteps (~44 minutes, CPU)
-Curriculum   : Edge BSs first 1,500 episodes
+Training     : 50,000 timesteps (~84 minutes, CPU)
+Curriculum   : Edge BSs first 2,500 episodes
 Discount     : γ = 0.95
 ```
 
@@ -291,14 +253,14 @@ self-healing-ran/
 │   ├── 02_cod_pipeline.ipynb         # COD dataset + classifiers
 │   └── 03_rl_training.ipynb          # DQN/PPO training + eval
 ├── src/
-│   ├── config.py                     # SimConfig
+│   ├── utils/                        # SimConfig
 │   ├── network/                      # BS, UE, RadioNetwork
 │   ├── detection/                    # KPILogger, COD classifiers
 │   ├── compensation/                 # 6 heuristic strategies
 │   ├── environment/                  # Gymnasium wrapper
 │   └── agents/                       # DQN/PPO training
 ├── models/                           # Pre-trained model weights
-├── results/                          # Evaluation CSVs
+├── results/                          # Evaluation CSVs and plots
 └── docs/                             # Paper, figures
 ```
 
