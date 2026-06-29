@@ -19,6 +19,7 @@
 
 <br>
 
+![5G RAN Outage Compensation](docs/figures/system_model.png)
 
 </div>
 
@@ -154,7 +155,7 @@ python3 main.py
 
 ### Agent Action Preferences
 
-![Action Analysis](docs/figures/action_analysis.png)
+![Action Analysis](docs/figures/action_distribution.png)
 
 > The DQN agent autonomously discovers that:
 > - **S3 (Best Neighbour)** is optimal for edge BS outage
