@@ -5,17 +5,23 @@ heuristic compensation strategies.
 
 evaluate_heuristic() and evaluate_rl_agent() are the exact
 functions validated in the project notebooks and used to
-produce the paper's Table III results — do not alter their
-internal logic (seed_offset scheme, step-then-hold heuristic
-procedure, etc.) without re-validating against the paper.
+produce the paper's Table III results.
+
+Plotting functions (_plot_coverage_solve_rate,
+_plot_energy_steps, _plot_action_distribution,
+_plot_bs_heatmap) are ported verbatim from the validated
+notebook plotting cells.
 """
 import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
+import matplotlib.patches as mpatches
+from matplotlib.lines import Line2D
 
 from src.environment.gym_env import SelfHealingNetworkEnv
+
+IEEE_DPI = 600
 
 
 # ============================================================
@@ -62,7 +68,6 @@ def evaluate_heuristic(strategy_name, action_id,
         zero_boost_steps  = 0
         n_steps           = 0
 
-        # Apply heuristic once on step 1
         obs, reward, term, trunc, info = env.step(action_id)
         n_steps += 1
 
@@ -78,7 +83,6 @@ def evaluate_heuristic(strategy_name, action_id,
 
         done = term or trunc
 
-        # Hold (no-op) for remaining steps
         while not done:
             obs, reward, term, trunc, info = env.step(0)
             n_steps += 1
@@ -248,7 +252,352 @@ def evaluate_rl_agent(model, model_name, config,
 
 
 # ============================================================
-# Orchestrator (replaces previous evaluate_models internals)
+# Plot 1: Coverage + Solve Rate (dual axis)
+# ============================================================
+def plot_coverage_comparison(all_results, save_dir="docs/figures"):
+    plt.rcParams['font.family'] = 'Serif'
+    plt.rcParams['font.size'] = 12
+
+    names = list(all_results.keys())
+    short_labels = [
+        'No Action', 'S1: Fixed', 'S2: Proportional',
+        'S3: Best Nbr', 'S4: Simultaneous', 'S5: Tilt Only',
+        'S6: Joint', 'PPO', 'DQN'
+    ]
+
+    means = [np.mean(r['coverage_pct']) for r in all_results.values()]
+    p5s   = [np.percentile(r['coverage_pct'], 5)
+            for r in all_results.values()]
+    p95s  = [np.percentile(r['coverage_pct'], 95)
+            for r in all_results.values()]
+    err_lo = [m - p for m, p in zip(means, p5s)]
+    err_hi = [p - m for m, p in zip(means, p95s)]
+
+    # Extract solve rates from results (not hardcoded)
+    solve_rates = [np.mean(r['solved']) * 100
+                  for r in all_results.values()]
+
+    # Swap last two elements (PPO/DQN ordering)
+    means[-2], means[-1] = means[-1], means[-2]
+    p5s[-2], p5s[-1] = p5s[-1], p5s[-2]
+    p95s[-2], p95s[-1] = p95s[-1], p95s[-2]
+    err_lo[-2], err_lo[-1] = err_lo[-1], err_lo[-2]
+    err_hi[-2], err_hi[-1] = err_hi[-1], err_hi[-2]
+    solve_rates[-2], solve_rates[-1] = solve_rates[-1], solve_rates[-2]
+
+    colors = []
+    for n in names:
+        if 'DQN' in n or 'PPO' in n:
+            colors.append('#e74c3c')
+        elif n == 'No Healing':
+            colors.append('#95a5a6')
+        else:
+            colors.append('#3498db')
+
+    fig, ax = plt.subplots(figsize=(4.50, 3.0))
+    x = np.arange(len(names))
+
+    bars = ax.bar(
+        x, means, color=colors, edgecolor='black',
+        linewidth=0.5, width=0.62, yerr=[err_lo, err_hi],
+        capsize=2.5,
+        error_kw={'elinewidth': 0.7, 'ecolor': 'black'})
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(short_labels, rotation=20, ha='right', fontsize=7)
+    ax.set_ylabel("Mean Coverage (%)", fontsize=7)
+    ax.set_title(
+        "Solve Rate and Coverage Comparison: RL Agents vs "
+        "Heuristic Strategies\n"
+        "(error bars = Coverage 5th\u201395th percentile)",
+        fontsize=7)
+    ax.tick_params(axis='both', labelsize=7)
+    ax.set_ylim(85, 101)
+    ax.axhline(y=100, color='green', linestyle='--', lw=1,
+              label='100% target')
+    ax.grid(True, axis='y', alpha=0.3, linestyle='--')
+    ax.set_facecolor('white')
+
+    for bar, mean in zip(bars, means):
+        ax.text(bar.get_x() + 0.12, bar.get_height() + 0.12,
+               f'{mean:.1f}%', ha='center', va='bottom', fontsize=7)
+
+    ax2 = ax.twinx()
+    ax2.plot(x, solve_rates, color='black', marker='o',
+            markersize=4.5, linewidth=1.2, linestyle='--',
+            label='Solve Rate')
+    ax2.set_ylabel("Solve Rate (%)", fontsize=7)
+    ax2.tick_params(axis='y', labelsize=7)
+    ax2.set_ylim(0, 80)
+
+    for xi, sr in zip(x, solve_rates):
+        ax2.text(xi + 0.12, sr + 0.7, f'{sr:.1f}%', ha='center',
+                va='bottom', fontsize=7, color='black')
+
+    legend_els = [
+        mpatches.Patch(facecolor='#e74c3c', label='RL Agent'),
+        mpatches.Patch(facecolor='#3498db', label='Heuristic'),
+        mpatches.Patch(facecolor='#95a5a6', label='No Healing'),
+        Line2D([0], [0], color='black', marker='o', markersize=4.5,
+              linestyle='--', linewidth=1.2, label='Solve Rate')
+    ]
+    ax.legend(handles=legend_els, fontsize=7, loc='upper left')
+
+    for spine in ax.spines.values():
+        spine.set_linewidth(0.8)
+
+    plt.tight_layout()
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir, "coverage_comparison.png")
+    plt.savefig(save_path, dpi=IEEE_DPI, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved: {save_path}")
+
+
+# ============================================================
+# Plot 2: Cumulative Energy + Steps (dual axis)
+# ============================================================
+def plot_cumulative_energy(all_results, save_dir="docs/figures"):
+    strategy_order = [
+        'No Healing', 'S1: Fixed', 'S2: Proportional',
+        'S3: Best Nbr', 'S4: Simultaneous', 'S5: Tilt Only',
+        'S6: Joint', 'PPO Agent', 'DQN Agent'
+    ]
+    short_labels = [
+        'No Action', 'S1: Fixed', 'S2: Proportional',
+        'S3: Best Nbr', 'S4: Simultaneous', 'S5: Tilt Only',
+        'S6: Joint', 'PPO', 'DQN'
+    ]
+
+    present = [s for s in strategy_order if s in all_results]
+    labels = [short_labels[strategy_order.index(s)] for s in present]
+    x = np.arange(len(present))
+
+    bar_colors = []
+    for s in present:
+        if s == 'No Healing':
+            bar_colors.append('#636363')
+        elif s in ('DQN Agent', 'PPO Agent'):
+            bar_colors.append('#e74c3c')
+        else:
+            bar_colors.append('#3498db')
+
+    mean_energy = np.array([
+        np.mean(all_results[s]['cumulative_energy']) for s in present])
+    std_energy = np.array([
+        np.std(all_results[s]['cumulative_energy']) for s in present])
+
+    # Mean steps: derive from actions_taken for RL agents,
+    # n_steps_taken/steps_to_solve for heuristics
+    mean_steps, std_steps = [], []
+    for s in present:
+        if ('DQN' in s) or ('PPO' in s):
+            step_counts = np.array([
+                len(actions)
+                for actions in all_results[s]['actions_taken']])
+            mean_steps.append(np.mean(step_counts))
+            std_steps.append(np.std(step_counts))
+        else:
+            steps = all_results[s].get(
+                'n_steps_taken',
+                all_results[s].get('steps_to_solve', [10]))
+            mean_steps.append(np.mean(steps))
+            std_steps.append(np.std(steps))
+
+    mean_steps = np.array(mean_steps)
+    std_steps  = np.array(std_steps)
+
+    fig, ax = plt.subplots(figsize=(4.5, 3.0))
+    ax_steps = ax.twinx()
+
+    bars = ax.bar(
+        x, mean_energy, yerr=std_energy, color=bar_colors,
+        edgecolor='black', linewidth=0.5, width=0.62, capsize=2.5,
+        error_kw={'elinewidth': 0.7, 'ecolor': '#333333'}, zorder=3)
+
+    for xi, e in zip(x, mean_energy):
+        ax.text(xi - 0.34, e + 3, f'{e:.1f}', ha='center',
+               va='bottom', fontsize=8)
+
+    ax_steps.errorbar(
+        x, mean_steps, yerr=std_steps, color='#1B7837', marker='D',
+        markersize=4.5, markerfacecolor='white',
+        markeredgecolor='#1B7837', markeredgewidth=1.0,
+        linestyle='-', linewidth=1.1, capsize=2.0, elinewidth=0.7,
+        ecolor='#1B7837', alpha=0.85, zorder=5)
+
+    for xi, s in zip(x, mean_steps):
+        ax_steps.text(xi + 0.34, s + 0.15, f'{s:.1f}', ha='center',
+                     va='bottom', fontsize=7, color='#1B7837')
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=20, ha='right')
+    ax.set_ylabel(r'Cumulative Energy (dB$\cdot$steps)')
+    ax_steps.set_ylabel('Mean steps to resolution', color='#1B7837')
+    ax_steps.tick_params(axis='y', labelcolor='#1B7837')
+    ax.set_title(
+        'Mean cumulative compensation energy and steps per episode\n'
+        r'(error bars = $\pm1\sigma$)')
+    ax.grid(True, axis='y', alpha=0.3, linestyle='--')
+    ax.set_ylim(0, 310)
+    ax_steps.set_ylim(0, 12.5)
+
+    if 'S3: Best Nbr' in present:
+        idx = present.index('S3: Best Nbr')
+        ax.axhline(mean_energy[idx], color='#4393C3', lw=0.7,
+                  linestyle=':')
+        ax.text(len(present) - 2.5, mean_energy[idx] + 5.5,
+               'Best heuristic', fontsize=7, color='#2166AC', ha='right')
+
+    legend_handles = [
+        mpatches.Patch(facecolor='#3498db', edgecolor='black',
+                      label='Cumulative energy (bars, left axis)'),
+        Line2D([0], [0], color='#1B7837', marker='D', markersize=4.5,
+              markerfacecolor='white', linewidth=1.1,
+              label='Mean steps (line, right axis)'),
+    ]
+    ax.legend(handles=legend_handles, loc='upper right',
+             fontsize=5.5, framealpha=0.9)
+
+    plt.tight_layout()
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir, "fig_cumulative_energy.png")
+    plt.savefig(save_path, dpi=IEEE_DPI, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved: {save_path}")
+
+
+# ============================================================
+# Plot 3: Per-BS Coverage Heatmap
+# ============================================================
+def plot_per_bs_heatmap(all_results, num_bs=7, save_dir="docs/figures"):
+    plt.rcParams['font.family'] = 'Serif'
+    plt.rcParams['font.size'] = 12
+
+    name_map = {
+        'No Healing'    : 'No Healing',
+        'S1: Fixed'     : 'S1: Power Boost',
+        'S2: Proportional': 'S2: Proportional Power Boost',
+        'S3: Best Nbr'  : 'S3: Best Single Neighbor',
+        'S4: Simultaneous': 'S4: Simultaneous Power Boost',
+        'S5: Tilt Only' : 'S5: Tilt Only',
+        'S6: Joint'     : 'S6: Joint Power + Tilt',
+        'DQN Agent'     : 'DQN Agent',
+        'PPO Agent'     : 'PPO Agent',
+    }
+    selected = {name_map[k]: v for k, v in all_results.items()
+               if k in name_map}
+
+    bs_ids = list(range(num_bs))
+    strat_names = list(selected.keys())
+    matrix = np.zeros((len(strat_names), len(bs_ids)))
+
+    for si, (name, res) in enumerate(selected.items()):
+        for bi, bs_id in enumerate(bs_ids):
+            mask = res['failed_bs_id'] == bs_id
+            if mask.sum() > 0:
+                matrix[si, bi] = np.mean(res['coverage_pct'][mask])
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    im = ax.imshow(matrix, cmap='RdYlGn', vmin=85, vmax=100,
+                  aspect='auto')
+    plt.colorbar(im, ax=ax, label='Mean Coverage (%)', shrink=0.8)
+
+    ax.set_xticks(range(len(bs_ids)))
+    ax.set_xticklabels(
+        [f'BS-{i}\n({"centre" if i==0 else "edge"})' for i in bs_ids],
+        fontsize=11)
+    ax.set_yticks(range(len(strat_names)))
+    ax.set_yticklabels(strat_names, fontsize=11)
+    ax.set_title(
+        "Coverage Heatmap: Strategy \u00d7 Failed BS\n"
+        "(green=high coverage, red=low coverage)",
+        fontsize=12, fontweight='bold')
+
+    for i in range(len(strat_names)):
+        for j in range(len(bs_ids)):
+            ax.text(j, i, f'{matrix[i, j]:.0f}%', ha='center',
+                   va='center', fontsize=10, fontweight='bold',
+                   color='black')
+
+    plt.tight_layout()
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir, "per_bs_heatmap.png")
+    plt.savefig(save_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved: {save_path}")
+
+
+# ============================================================
+# Plot 4: DQN Action Distribution (edge vs centre BS)
+# ============================================================
+def plot_action_distribution(dqn_results, num_bs=7,
+                             save_dir="docs/figures"):
+    actions = ['No Action', 'S1', 'S2', 'S3', 'S4', 'S5', 'S6']
+    colors = [
+        '#95a5a6', '#3498db', '#2ecc71', '#e74c3c',
+        '#9b59b6', '#f39c12', '#1abc9c'
+    ]
+
+    def compute_pct(bs_ids_sel):
+        mask = np.isin(dqn_results['failed_bs_id'], bs_ids_sel)
+        if mask.sum() == 0:
+            return np.zeros(len(actions))
+        all_actions = []
+        for i in range(len(dqn_results['actions_taken'])):
+            if mask[i]:
+                all_actions.extend(dqn_results['actions_taken'][i])
+        counts = np.zeros(len(actions))
+        for a in all_actions:
+            counts[a] += 1
+        return counts / max(counts.sum(), 1) * 100
+
+    edge_pct   = compute_pct(list(range(1, num_bs)))
+    centre_pct = compute_pct([0])
+
+    fig, ax = plt.subplots(figsize=(4.5, 3.0))
+
+    x_left = np.arange(7)
+    gap = 2
+    x_right = np.arange(7) + 7 + gap
+
+    bars_left = ax.bar(x_left, edge_pct, color=colors,
+                       edgecolor='black', linewidth=0.5, width=0.75)
+    bars_right = ax.bar(x_right, centre_pct, color=colors,
+                        edgecolor='black', linewidth=0.5, width=0.75)
+
+    for bar in list(bars_left) + list(bars_right):
+        h = bar.get_height()
+        if h > 0:
+            ax.text(bar.get_x() + bar.get_width() / 2, h + 1.0,
+                   f'{h:.1f}%', ha='center', va='bottom', fontsize=6)
+
+    ax.set_xticks(list(x_left) + list(x_right))
+    ax.set_xticklabels(actions + actions, rotation=20, ha='right')
+
+    separator_x = 7 + gap / 2 - 0.5
+    ax.axvline(separator_x, color='black', linestyle='--', linewidth=0.8)
+
+    ax.text(np.mean(x_left), -10, 'Edge BS Failure', ha='center',
+           va='top', fontsize=9)
+    ax.text(np.mean(x_right), -10, 'Centre BS Failure', ha='center',
+           va='top', fontsize=10)
+
+    ax.set_ylabel('Action Usage (%)')
+    ax.set_ylim(0, 65)
+    ax.grid(True, axis='y', linestyle='--', alpha=0.3)
+    ax.set_title('DQN Agent Action Distribution')
+
+    plt.tight_layout()
+    os.makedirs(save_dir, exist_ok=True)
+    save_path = os.path.join(save_dir, "action_distribution.png")
+    plt.savefig(save_path, dpi=600, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Saved: {save_path}")
+
+
+# ============================================================
+# Orchestrator
 # ============================================================
 STRATEGY_ACTION_IDS = {
     'No Healing'       : 0,
@@ -268,36 +617,16 @@ def evaluate_models(agents, config, n_episodes=500,
     Full paper-results evaluation: compares trained RL
     agents against all six heuristic strategies (plus a
     no-action baseline) over n_episodes test episodes,
-    using the exact validated evaluate_heuristic /
-    evaluate_rl_agent procedures.
-
-    Parameters
-    ----------
-    agents : dict[str, SB3 model]
-        e.g. {"DQN": dqn_model, "PPO": ppo_model}.
-    config : SimConfig
-    n_episodes : int
-    num_bs : int
-    save_dir, fig_dir : str
-    verbose : bool
-
-    Returns
-    -------
-    summary_df : pd.DataFrame
-    raw_results : dict[str, dict]
-        Method name -> full results dict
-        (as returned by evaluate_heuristic / evaluate_rl_agent).
+    and reproduces all four validated paper figures.
     """
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(fig_dir, exist_ok=True)
 
     raw_results = {}
 
-    # --- Heuristic strategies (incl. No Healing) ---
     for name, action_id in STRATEGY_ACTION_IDS.items():
         if verbose:
-            print(f"[evaluate_models] Evaluating "
-                 f"'{name}'...", end=" ")
+            print(f"[evaluate_models] Evaluating '{name}'...", end=" ")
         raw_results[name] = evaluate_heuristic(
             name, action_id, config,
             n_episodes=n_episodes, seed_offset=9999)
@@ -306,45 +635,40 @@ def evaluate_models(agents, config, n_episodes=500,
             sol = np.mean(raw_results[name]['solved']) * 100
             print(f"Cov={cov:.1f}% | Solved={sol:.1f}%")
 
-    # --- RL agents ---
+    dqn_results = None
     for name, model in agents.items():
         if verbose:
-            print(f"[evaluate_models] Evaluating "
-                 f"'{name}'...", end=" ")
+            print(f"[evaluate_models] Evaluating '{name}'...", end=" ")
         raw_results[name] = evaluate_rl_agent(
             model, name, config,
             n_episodes=n_episodes, seed_offset=99999)
+        if 'DQN' in name:
+            dqn_results = raw_results[name]
         if verbose:
             cov = np.mean(raw_results[name]['coverage_pct'])
             sol = np.mean(raw_results[name]['solved']) * 100
             print(f"Cov={cov:.1f}% | Solved={sol:.1f}%")
 
-    # --- Summary table ---
+    # Summary table
     rows = []
     for method, res in raw_results.items():
         rows.append({
             "method": method,
             "mean_coverage_pct": np.mean(res['coverage_pct']),
             "solve_rate_pct": np.mean(res['solved']) * 100,
-            "mean_energy_dB_steps": np.mean(
-                res['cumulative_energy']),
+            "mean_energy_dB_steps": np.mean(res['cumulative_energy']),
             "mean_steps": np.mean(res['n_steps_taken']),
         })
     summary_df = pd.DataFrame(rows).sort_values(
         "mean_coverage_pct", ascending=False)
     summary_df.to_csv(
-        os.path.join(save_dir, "evaluation_summary.csv"),
-        index=False)
+        os.path.join(save_dir, "evaluation_summary.csv"), index=False)
 
     for method, res in raw_results.items():
-        # actions_taken is a list-of-lists for RL agents;
-        # drop it before building a flat per-episode CSV
-        flat = {k: v for k, v in res.items()
-               if k != 'actions_taken'}
+        flat = {k: v for k, v in res.items() if k != 'actions_taken'}
+        safe_name = method.replace(' ', '_').replace(':', '')
         pd.DataFrame(flat).to_csv(
-            os.path.join(save_dir,
-                        f"raw_{method.replace(' ', '_').replace(':','')}.csv"),
-            index=False)
+            os.path.join(save_dir, f"raw_{safe_name}.csv"), index=False)
 
     if verbose:
         print("\n" + "=" * 60)
@@ -352,91 +676,11 @@ def evaluate_models(agents, config, n_episodes=500,
         print("=" * 60)
         print(summary_df.to_string(index=False))
 
-    # --- Figures ---
-    _plot_coverage_solve_rate(summary_df, fig_dir)
-    _plot_energy_steps(summary_df, fig_dir)
-    _plot_action_distribution(raw_results, agents.keys(), fig_dir)
-    _plot_bs_heatmap(raw_results, agents.keys(), num_bs, fig_dir)
+    # Figures (all four validated plots)
+    plot_coverage_comparison(raw_results, fig_dir)
+    plot_cumulative_energy(raw_results, fig_dir)
+    plot_per_bs_heatmap(raw_results, num_bs, fig_dir)
+    if dqn_results is not None:
+        plot_action_distribution(dqn_results, num_bs, fig_dir)
 
     return summary_df, raw_results
-
-
-def _plot_coverage_solve_rate(summary_df, fig_dir):
-    fig, ax1 = plt.subplots(figsize=(10, 5))
-    x = np.arange(len(summary_df))
-    ax1.bar(x - 0.2, summary_df["mean_coverage_pct"],
-           width=0.4, label="Coverage (%)", color="steelblue")
-    ax1.set_ylabel("Mean Coverage (%)")
-    ax2 = ax1.twinx()
-    ax2.bar(x + 0.2, summary_df["solve_rate_pct"],
-           width=0.4, label="Solve Rate (%)", color="indianred")
-    ax2.set_ylabel("Solve Rate (%)")
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(summary_df["method"], rotation=45, ha="right")
-    fig.legend(loc="upper right")
-    plt.title("Coverage & Solve Rate by Method")
-    plt.tight_layout()
-    plt.savefig(os.path.join(fig_dir, "coverage_solve_rate.png"), dpi=300)
-    plt.close(fig)
-
-
-def _plot_energy_steps(summary_df, fig_dir):
-    fig, ax1 = plt.subplots(figsize=(10, 5))
-    x = np.arange(len(summary_df))
-    ax1.bar(x - 0.2, summary_df["mean_energy_dB_steps"],
-           width=0.4, label="Energy (dB·steps)", color="darkorange")
-    ax1.set_ylabel("Mean Cumulative Energy (dB·steps)")
-    ax2 = ax1.twinx()
-    ax2.plot(x, summary_df["mean_steps"], "o-",
-           color="seagreen", label="Mean Steps")
-    ax2.set_ylabel("Mean Steps to Resolution")
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(summary_df["method"], rotation=45, ha="right")
-    fig.legend(loc="upper right")
-    plt.title("Compensation Energy & Steps by Method")
-    plt.tight_layout()
-    plt.savefig(os.path.join(fig_dir, "energy_steps.png"), dpi=300)
-    plt.close(fig)
-
-
-def _plot_action_distribution(raw_results, agent_names, fig_dir):
-    for name in agent_names:
-        res = raw_results.get(name)
-        if res is None or "actions_taken" not in res:
-            continue
-        all_actions = [a for lst in res["actions_taken"] for a in lst]
-        if not all_actions:
-            continue
-        fig, ax = plt.subplots(figsize=(7, 4))
-        ax.hist(all_actions, bins=np.arange(max(all_actions) + 2) - 0.5,
-               rwidth=0.8, color="slateblue")
-        ax.set_xlabel("Action ID")
-        ax.set_ylabel("Frequency")
-        ax.set_title(f"{name} Action Distribution")
-        plt.tight_layout()
-        plt.savefig(os.path.join(fig_dir, f"action_dist_{name.lower()}.png"),
-                   dpi=300)
-        plt.close(fig)
-
-
-def _plot_bs_heatmap(raw_results, agent_names, num_bs, fig_dir):
-    for name in agent_names:
-        res = raw_results.get(name)
-        if res is None or "failed_bs_id" not in res:
-            continue
-        df = pd.DataFrame({
-            "failed_bs": res["failed_bs_id"],
-            "coverage_pct": res["coverage_pct"],
-        })
-        pivot = df.groupby("failed_bs")["coverage_pct"].mean().reindex(
-            range(num_bs))
-        fig, ax = plt.subplots(figsize=(8, 1.5))
-        sns.heatmap(pivot.to_frame().T, annot=True, fmt=".1f",
-                   cmap="RdYlGn", cbar_kws={"label": "Coverage (%)"}, ax=ax)
-        ax.set_yticks([])
-        ax.set_xlabel("Failed BS ID")
-        ax.set_title(f"{name}: Per-BS Coverage Heatmap")
-        plt.tight_layout()
-        plt.savefig(os.path.join(fig_dir, f"bs_heatmap_{name.lower()}.png"),
-                   dpi=300)
-        plt.close(fig)
