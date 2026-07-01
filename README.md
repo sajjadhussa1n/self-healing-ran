@@ -127,6 +127,8 @@ source venv/bin/activate  # Linux/Mac
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Run the script
 python3 main.py
 ```
 
@@ -183,7 +185,7 @@ A classifier distinguishing root-cause outage from collat
 erally degraded neighbours feeds directly into the DRL
 agent’s observation state.
 
-**C2 — Joint Power + Tilt Action Space:**
+**Joint Power + Tilt Action Space:**
 A joint power-and-tilt action space, with the agent shown
 to learn a geometry-aware policy achieving superior coverage, full network restoration, and compensation energy efficiency than heuristic baselines.
 
@@ -303,8 +305,8 @@ torch>=2.0
 
 **Dr. Sajjad Hussain**
 - 📧 sajjad.hussain2@seecs.edu.pk
-- 💼 [LinkedIn](https://linkedin.com/in/yourprofile)
-- 🔬 [Google Scholar](https://scholar.google.com/yourprofile)
+- 💼 [LinkedIn](https://www.linkedin.com/in/sajjad-hussain-07977748/)
+- 🔬 [Google Scholar](https://scholar.google.com/citations?user=WPmIWr0AAAAJ)
 
 **Affiliation:** School of Electrical Engineering and Computer Science (SEECS), National University of Sciences and Technology (NUST), Pakistan
 
@@ -315,7 +317,7 @@ management and intelligent RAN design.*
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the Creative Commons Attribution–NonCommercial 4.0 International License (CC BY-NC 4.0)
 See [LICENSE](LICENSE) for details.
 
 ---
